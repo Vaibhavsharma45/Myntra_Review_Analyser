@@ -1,15 +1,24 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup as bs
 import pandas as pd
 import time
 import sys
+import os
 from urllib.parse import quote
 from tqdm import tqdm
 import logging
+
+# For cloud deployment
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+    CLOUD_MODE = True
+except ImportError:
+    CLOUD_MODE = False
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -41,7 +50,15 @@ class ImprovedScraper:
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
         
         try:
-            self.driver = webdriver.Chrome(options=options)
+            # Initialize Chrome driver
+            if CLOUD_MODE:
+                # For cloud deployment (Streamlit Cloud, Heroku, etc.)
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=options)
+            else:
+                # For local development
+                self.driver = webdriver.Chrome(options=options)
+            
             self.driver.set_page_load_timeout(30)
             logger.info("Browser initialized successfully")
         except Exception as e:
