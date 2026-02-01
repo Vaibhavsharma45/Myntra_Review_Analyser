@@ -38,13 +38,14 @@ class ImprovedScraper:
         options = Options()
         
         # Performance optimizations
-        if headless:
-            options.add_argument("--headless")
+        options.add_argument("--headless")  # Always headless for cloud
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-software-rasterizer")
         
         # Add user agent to avoid detection
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
@@ -53,8 +54,22 @@ class ImprovedScraper:
             # Initialize Chrome driver
             if CLOUD_MODE:
                 # For cloud deployment (Streamlit Cloud, Heroku, etc.)
-                service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=options)
+                # Use system chromium-driver instead of webdriver-manager
+                try:
+                    # Try to use system chromium-driver first
+                    service = Service('/usr/bin/chromedriver')
+                    self.driver = webdriver.Chrome(service=service, options=options)
+                except:
+                    # Fallback to webdriver-manager with specific Chrome version
+                    try:
+                        from selenium.webdriver.chrome.service import Service as ChromeService
+                        # Force download matching ChromeDriver for installed Chrome
+                        service = ChromeService(ChromeDriverManager(driver_version="144.0.7559").install())
+                        self.driver = webdriver.Chrome(service=service, options=options)
+                    except:
+                        # Last resort - use default system chrome
+                        options.binary_location = '/usr/bin/chromium'
+                        self.driver = webdriver.Chrome(options=options)
             else:
                 # For local development
                 self.driver = webdriver.Chrome(options=options)
