@@ -99,11 +99,16 @@ class ImprovedScraper:
             pclass = myntra_html.findAll("ul", {"class": "results-base"})
             
             product_urls = []
-            for i in pclass:
-                href = i.find_all("a", href=True)
-                for product_no in range(len(href)):
-                    t = href[product_no]["href"]
-                    product_urls.append(t)
+            seen = set()
+            for ul in pclass:
+                items = ul.findAll("li", {"class": "product-base"})
+                for item in items:
+                    a_tag = item.find("a", href=True)
+                    if a_tag:
+                        href = a_tag["href"]
+                        if href not in seen:
+                            seen.add(href)
+                            product_urls.append(href)
             
             logger.info(f"Found {len(product_urls)} products")
             return product_urls
@@ -137,7 +142,28 @@ class ImprovedScraper:
             for i in price:
                 self.product_price = i.text
             
-            product_reviews = prodRes_html.find("a", {"class": "detailed-reviews-allReviews"})
+            # Try multiple selectors for review link
+            product_reviews = (
+                prodRes_html.find("a", {"class": "detailed-reviews-allReviews"}) or
+                prodRes_html.find("a", string=lambda t: t and ("review" in t.lower() or "rating" in t.lower())) or
+                prodRes_html.find("a", href=lambda h: h and "reviews" in h.lower())
+            )
+            
+            # Fallback: construct reviews URL from product URL directly
+            if not product_reviews:
+                # Myntra reviews URL pattern: /productId/reviews
+                product_id = product_link.split("/")[-2] if "/" in product_link else None
+                if product_id and product_id.isdigit():
+                    class FakeTag:
+                        def __init__(self, href):
+                            self["href"] = href
+                        def __getitem__(self, key):
+                            return self._href if key == "href" else None
+                        def __setitem__(self, key, value):
+                            self._href = value
+                    fake = FakeTag(f"/{product_link.replace('/buy', '')}/reviews")
+                    logger.info(f"Constructed review URL: {fake['href']}")
+                    return fake
             
             if not product_reviews:
                 logger.warning(f"No reviews found for: {self.product_title}")
@@ -178,20 +204,40 @@ class ImprovedScraper:
     def extract_review_data(self, product_reviews):
         """Extract individual review data"""
         try:
-            review_link = "https://www.myntra.com" + product_reviews["href"]
+            href = product_reviews["href"] if product_reviews["href"].startswith("http") else "https://www.myntra.com" + product_reviews["href"]
+            review_link = href
             self.driver.get(review_link)
             
             self.scroll_to_load_reviews()
             
             review_html = bs(self.driver.page_source, "html.parser")
-            review_container = review_html.findAll("div", {"class": "detailed-reviews-userReviewsContainer"})
+            
+            # Try multiple container selectors
+            review_container = (
+                review_html.findAll("div", {"class": "detailed-reviews-userReviewsContainer"}) or
+                review_html.findAll("div", {"class": lambda c: c and "userReview" in c}) or
+                review_html.findAll("div", {"class": lambda c: c and "review" in c.lower() and "container" in c.lower()})
+            )
             
             reviews = []
             
             for container in review_container:
-                user_rating = container.findAll("div", {"class": "user-review-main user-review-showRating"})
-                user_comment = container.findAll("div", {"class": "user-review-reviewTextWrapper"})
-                user_name = container.findAll("div", {"class": "user-review-left"})
+                # Try multiple rating selectors
+                user_rating = (
+                    container.findAll("div", {"class": "user-review-main user-review-showRating"}) or
+                    container.findAll("div", {"class": lambda c: c and "showRating" in (c or "")}) or
+                    container.findAll("span", {"class": lambda c: c and "rating" in (c or "").lower()})
+                )
+                # Try multiple comment selectors
+                user_comment = (
+                    container.findAll("div", {"class": "user-review-reviewTextWrapper"}) or
+                    container.findAll("div", {"class": lambda c: c and "reviewText" in (c or "")}) or
+                    container.findAll("p", {"class": lambda c: c and "review" in (c or "").lower()})
+                )
+                user_name = (
+                    container.findAll("div", {"class": "user-review-left"}) or
+                    container.findAll("div", {"class": lambda c: c and "user-review" in (c or "")})
+                )
                 
                 for i in range(len(user_rating)):
                     try:
